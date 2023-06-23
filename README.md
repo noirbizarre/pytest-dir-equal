@@ -21,14 +21,6 @@ pipenv install pytest-dir-equal
 pdm add pytest-dir-equal
 ```
 
-## Features
-
-- [ ] TODO
-
-## Documentation
-
-Documentation is available at <https://pytest-dir-equal.rtfd.io>
-
 ## Contributing
 
 Read the [dedicated contributing guidelines](./CONTRIBUTING.md).
