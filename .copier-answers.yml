@@ -1,0 +1,22 @@
+# Changes here will be overwritten by Copier
+_commit: 4b988ad
+_src_path: /home/noirbizarre/Workspaces/copier.templates/python.copier
+author_email: noirbizarre@gmail.com
+author_fullname: Axel Haustant
+author_username: noirbizarre
+copyright_license: MIT License
+has_docs: false
+is_cli: false
+is_lib: true
+project_description: pytest-dir-equals is a pytest plugin providing helpers to assert
+    directories equality allowing golden testing
+project_name: pytest-dir-equal
+project_slug: pytest-dir-equal
+python_distribution: pytest-dir-equal
+python_package: pytest_dir_equal
+repository_name: pytest-dir-equal
+repository_namespace: noirbizarre
+repository_provider: github.com
+use_src: true
+
+# End
