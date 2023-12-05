@@ -20,6 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: releases
     permissions:
+      actions: write
+      contents: write
+      pull-requests: write
       # IMPORTANT: this permission is mandatory for trusted publishing
       id-token: write
 
