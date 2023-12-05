@@ -3,9 +3,10 @@ from __future__ import annotations
 import filecmp
 import fnmatch
 import os
-import sys
+import re
 
 from dataclasses import dataclass
+from enum import Enum
 from io import StringIO
 from itertools import filterfalse
 from pathlib import Path
@@ -17,34 +18,65 @@ from _pytest._code.code import TerminalRepr
 from _pytest._io import TerminalWriter, get_terminal_width
 
 if TYPE_CHECKING:
-    if sys.version_info >= (3, 8):
-        from typing import Protocol
-    else:
-        from typing_extensions import Protocol
+    from typing import Protocol
 
 
 COLS = get_terminal_width()
 LEFT_MARGIN = 10
 GUTTER = 2
-MARGINS = LEFT_MARGIN + GUTTER + 1
+MARGINS = LEFT_MARGIN + GUTTER
 DIFF_WIDTH = COLS - MARGINS
 
-EXPECTED_HEADER = " expected "
-ACTUAL_HEADER = " actual "
-
-
 DEFAULT_IGNORES = filecmp.DEFAULT_IGNORES
+
+
+class StrEnum(str, Enum):
+    def __str__(self) -> str:
+        return self.value
+
+
+class Kind(StrEnum):
+    ADDED = "ADDED"
+    REMOVED = "REMOVED"
+    DIFF = "DIFF"
+
+
+class Symbol(StrEnum):
+    ADDED = "➕"
+    REMOVED = "➖"
+    DIFF = "💥"
+
+
+class Style(StrEnum):
+    ADDED = icdiff.color_codes["green"]
+    REMOVED = icdiff.color_codes["red"]
+    DIFF = icdiff.color_codes["yellow"]
+    NONE = icdiff.color_codes["none"]
+
+
+def len_no_ansi(string):
+    return len(
+        re.sub(
+            r"[\u001B\u009B][\[\]()#;?]*((([a-zA-Z\d]*(;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\u0007)|((\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~]))",
+            "",
+            string,
+        )
+    )
 
 
 @dataclass
 class DiffRepr(TerminalRepr):
     name: str
 
-    def actual_lines(self) -> list[str]:
+    def actual_lines(self) -> list[str] | None:
         raise NotImplementedError()
 
-    def expected_lines(self) -> list[str]:
+    def expected_lines(self) -> list[str] | None:
         raise NotImplementedError()
+
+    @property
+    def kind(self) -> Kind:
+        return Kind.DIFF
 
     def toterminal(self, tw: TerminalWriter) -> None:
         differ = icdiff.ConsoleDiff(
@@ -64,35 +96,65 @@ class DiffRepr(TerminalRepr):
         else:
             color_off = icdiff.color_codes["none"]
 
-        line_length = COLS - LEFT_MARGIN
-        tw.line(f"💥 {self.name} files are different, see the diff below 👇")
-        diff_header = f"[ {self.name} ]"
-        half_header = int((line_length - len(diff_header)) / 2)
-        halt_left_header = int((half_header - len(EXPECTED_HEADER)) / 2)
-        left_header = halt_left_header * "-" + EXPECTED_HEADER + halt_left_header * "-"
-        halt_right_header = int((half_header - len(ACTUAL_HEADER)) / 2)
-        right_header = halt_right_header * "-" + ACTUAL_HEADER + halt_right_header * "-"
-        tw.line(left_header + diff_header + right_header)
+        symbol = Symbol[self.kind]
+        style = Style[self.kind]
 
-        lines = differ.make_table(self.expected_lines(), self.actual_lines(), context=True)
+        line_length = DIFF_WIDTH
+        diff_header = f"╼ {symbol} {Style.NONE}{self.name} {style}╾"
+        half_header, fill = divmod(line_length - len_no_ansi(diff_header), 2)
+
+        actual_header = f"╴{Style.REMOVED}actual{style}╶"
+        halt_left_header, remaining = divmod(half_header - len_no_ansi(actual_header), 2)
+        left_header = halt_left_header * "─" + actual_header + (halt_left_header + remaining) * "─"
+
+        expected_header = f"╴{Style.ADDED}expected{style}╶"
+        halt_right_header, remaining = divmod(half_header - len_no_ansi(expected_header), 2)
+        right_header = (
+            halt_right_header * "─" + expected_header + (halt_right_header + remaining) * "─"
+        )
+
+        tw.line(
+            "".join(
+                (
+                    style,
+                    "╭",
+                    left_header[1:],
+                    diff_header,
+                    right_header[:-1],
+                    fill * "─",
+                    "╮",
+                )
+            )
+        )
+
+        lines = differ.make_table(
+            self.actual_lines() or [], self.expected_lines() or [], context=True
+        )
         for line in lines:
             tw.line(color_off + line)
 
-        diff_footer = f"[ end of {self.name} diff ]"
-        half_footer = int((line_length - len(diff_footer)) / 2)
-        tw.line(half_footer * "-" + diff_footer + half_footer * "-")
+        tw.line(style + "╰" + (line_length - 1) * "─" + "╯")
 
 
 @dataclass
 class ReprDiffError(DiffRepr):
-    expected: Path
-    actual: Path
+    expected: Path | None
+    actual: Path | None
 
-    def actual_lines(self) -> list[str]:
-        return self.actual.read_text().splitlines()
+    def actual_lines(self) -> list[str] | None:
+        return self.actual.read_text().splitlines() if self.actual else None
 
-    def expected_lines(self) -> list[str]:
-        return self.expected.read_text().splitlines()
+    def expected_lines(self) -> list[str] | None:
+        return self.expected.read_text().splitlines() if self.expected else None
+
+    @property
+    def kind(self) -> Kind:
+        if self.expected and self.actual:
+            return Kind.DIFF
+        elif self.expected:
+            return Kind.REMOVED
+        else:
+            return Kind.ADDED
 
 
 def _filter(flist, skip):
@@ -117,14 +179,24 @@ class DirDiff(filecmp.dircmp):
         prefix = prefix or Path("")
         for name in self.diff_files:
             ReprDiffError(
-                prefix / name, expected=Path(self.right) / name, actual=Path(self.left) / name
+                prefix / name,
+                actual=Path(self.left) / name,
+                expected=Path(self.right) / name,
             ).toterminal(tw)
         for name in self.left_only:
-            tw.line(f"🚫 {prefix / name} file is present but not expected in the actual directory")
+            ReprDiffError(
+                prefix / name,
+                actual=Path(self.left) / name,
+                expected=None,
+            ).toterminal(tw)
         for name in self.right_only:
-            tw.line(f"⛔ {prefix / name} is missing from the actual directory")
+            ReprDiffError(
+                prefix / name,
+                actual=None,
+                expected=Path(self.right) / name,
+            ).toterminal(tw)
         for name, sub in self.subdirs.items():
-            prefix = Path(name) if not prefix else (prefix / name)
+            prefix = (prefix / name) if str(prefix) else Path(name)
             sub.to_terminal(tw, prefix=prefix)  # type: ignore
 
 
