@@ -85,6 +85,7 @@ class DiffRepr(TerminalRepr):
             highlight=True,
             truncate=True,
             line_numbers=True,
+            show_all_spaces=True,
         )
         if not tw.hasmarkup:
             # colorization is disabled in Pytest - either due to the terminal not
