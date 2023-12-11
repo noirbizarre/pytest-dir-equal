@@ -7,6 +7,7 @@ import re
 
 from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from io import StringIO
 from itertools import filterfalse
 from pathlib import Path
@@ -39,12 +40,16 @@ class Kind(StrEnum):
     ADDED = "ADDED"
     REMOVED = "REMOVED"
     DIFF = "DIFF"
+    TYPE_DIFF = "TYPE_DIFF"
 
 
-class Symbol(StrEnum):
+class Icon(StrEnum):
     ADDED = "➕"
     REMOVED = "➖"
     DIFF = "💥"
+    DIR = "📁"
+    FILE = "📃"
+    SYMLINK = "🔗"
 
 
 class Style(StrEnum):
@@ -55,6 +60,7 @@ class Style(StrEnum):
 
 
 def len_no_ansi(string):
+    """Get the length of a string without the ANSI codes"""
     return len(
         re.sub(
             r"[\u001B\u009B][\[\]()#;?]*((([a-zA-Z\d]*(;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\u0007)|((\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~]))",
@@ -67,16 +73,35 @@ def len_no_ansi(string):
 @dataclass
 class DiffRepr(TerminalRepr):
     name: str
+    expected: Path | None
+    actual: Path | None
 
     def actual_lines(self) -> list[str] | None:
-        raise NotImplementedError()
+        return self._lines(self.actual)
 
     def expected_lines(self) -> list[str] | None:
-        raise NotImplementedError()
+        return self._lines(self.expected)
 
-    @property
+    def _lines(self, path: Path | None) -> list[str] | None:
+        if path:
+            if path.is_file():
+                return path.read_text().splitlines()
+            if path.is_dir():
+                return [f"{Icon.DIR} {self.name}"]
+            if path.is_symlink():
+                return [f"{Icon.SYMLINK} {self.name}"]
+        return None
+
+    @cached_property
     def kind(self) -> Kind:
-        return Kind.DIFF
+        if self.expected and self.actual:
+            if self.expected.is_file() and self.actual.is_file():
+                return Kind.DIFF
+            return Kind.TYPE_DIFF
+        elif self.expected:
+            return Kind.REMOVED
+        else:
+            return Kind.ADDED
 
     def toterminal(self, tw: TerminalWriter) -> None:
         differ = icdiff.ConsoleDiff(
@@ -97,7 +122,7 @@ class DiffRepr(TerminalRepr):
         else:
             color_off = icdiff.color_codes["none"]
 
-        symbol = Symbol[self.kind]
+        symbol = Icon[self.kind]
         style = Style[self.kind]
 
         line_length = DIFF_WIDTH
@@ -137,27 +162,6 @@ class DiffRepr(TerminalRepr):
         tw.line(style + "╰" + (line_length - 1) * "─" + "╯")
 
 
-@dataclass
-class ReprDiffError(DiffRepr):
-    expected: Path | None
-    actual: Path | None
-
-    def actual_lines(self) -> list[str] | None:
-        return self.actual.read_text().splitlines() if self.actual else None
-
-    def expected_lines(self) -> list[str] | None:
-        return self.expected.read_text().splitlines() if self.expected else None
-
-    @property
-    def kind(self) -> Kind:
-        if self.expected and self.actual:
-            return Kind.DIFF
-        elif self.expected:
-            return Kind.REMOVED
-        else:
-            return Kind.ADDED
-
-
 def _filter(flist, skip):
     for pattern in skip:
         flist = list(filterfalse(fnmatch.filter(flist, pattern).__contains__, flist))
@@ -179,19 +183,19 @@ class DirDiff(filecmp.dircmp):
     def to_terminal(self, tw: TerminalWriter, prefix: Path | None = None):
         prefix = prefix or Path("")
         for name in self.diff_files:
-            ReprDiffError(
+            DiffRepr(
                 prefix / name,
                 actual=Path(self.left) / name,
                 expected=Path(self.right) / name,
             ).toterminal(tw)
         for name in self.left_only:
-            ReprDiffError(
+            DiffRepr(
                 prefix / name,
                 actual=Path(self.left) / name,
                 expected=None,
             ).toterminal(tw)
         for name in self.right_only:
-            ReprDiffError(
+            DiffRepr(
                 prefix / name,
                 actual=None,
                 expected=Path(self.right) / name,
