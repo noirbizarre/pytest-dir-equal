@@ -1,5 +1,18 @@
 # Changelog
 
+## 🚀 0.2.1 (2023-12-11)
+
+### 🐛 Bug fixes
+
+- **diff**: show all whitespaces in diff
+- basic handling of type diff
+
+### 📦 Build
+
+- **deps**: update locked dependencies
+
+<!-- End of file -->
+
 ## 🚀 0.2.0 (2023-12-05)
 
 ### 📦 Build
