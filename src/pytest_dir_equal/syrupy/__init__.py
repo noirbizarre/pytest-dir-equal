@@ -128,6 +128,7 @@ class PathSnapshotExtension(AbstractSyrupyExtension):
         snapshot = list(snapshot_collection._snapshots.values())[0]
         path = cast(Path, snapshot.data.path)
         location = Path(snapshot_collection.location)
+        target = location / snapshot.name
         if path.is_dir():
             empty_dirs = []
 
@@ -136,12 +137,13 @@ class PathSnapshotExtension(AbstractSyrupyExtension):
                     empty_dirs.append(dir)
                 return set()
 
-            shutil.copytree(snapshot.data.path, location, ignore=ignore)
+            shutil.copytree(snapshot.data.path, target, ignore=ignore, dirs_exist_ok=True)
             for empty in empty_dirs:
                 rel_path = Path(empty).relative_to(snapshot.data.path)
-                (location / rel_path / GITKEEPER).write_text("")
+                (target / rel_path / GITKEEPER).write_text("")
         else:
-            shutil.copy(snapshot.data.path, snapshot_collection.location)
+            target.parent.mkdir(parents=True)
+            shutil.copy(snapshot.data.path, target)
 
     def diff_lines(
         self,
