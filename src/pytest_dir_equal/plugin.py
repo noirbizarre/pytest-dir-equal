@@ -224,5 +224,4 @@ def assert_dir_equal(tested: Path, ref: Path | str, ignore: list[str] | None = N
 if TYPE_CHECKING:
 
     class AssertDirEqual(Protocol):
-        def __call__(self, tested: Path, ref: Path | str, ignore: list[str] | None = None):
-            ...
+        def __call__(self, tested: Path, ref: Path | str, ignore: list[str] | None = None): ...
